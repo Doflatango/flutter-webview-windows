@@ -51,6 +51,19 @@ class _ExampleBrowser extends State<ExampleBrowser> {
       await _controller.setPopupWindowPolicy(WebviewPopupWindowPolicy.deny);
       await _controller.loadUrl('https://flutter.dev');
 
+      print(await _controller.executeScript('document.activeElement.getBoundingClientRect()')); // ❌ return null
+      print(await _controller.executeScriptStatement('document.activeElement.getBoundingClientRect()'));  // ✔️ return {...}
+
+      print(await _controller.executeScript('1 + 2')); // ✔️ return 3
+      print(await _controller.executeScriptStatement('1 + 2')); // ✔️ return 3
+
+      print(await _controller.executeScript('function printObj() { return {"a": 1, "arr": [2, 3, "string", 4.5]}; }'));
+      print(await _controller.executeScript('printObj()')); // ✔️ return {"a": 1, "arr": [2, 3, "string", 4.5]}; }
+      print(await _controller.executeScriptStatement('printObj()')); // ✔️ return {"a": 1, "arr": [2, 3, "string", 4.5]}; }
+
+      print(await _controller.executeScript("document.querySelector('.container>h1').textContent")); // ✔️ 
+      print(await _controller.executeScriptStatement("document.querySelector('.container>h1').textContent")); // ✔️ 
+
       if (!mounted) return;
       setState(() {});
     } on PlatformException catch (e) {
