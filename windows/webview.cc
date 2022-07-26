@@ -199,7 +199,15 @@ void Webview::RegisterEventHandlers() {
 
   webview_->add_NavigationCompleted(
       Callback<ICoreWebView2NavigationCompletedEventHandler>(
-          [this](ICoreWebView2* sender, IUnknown* args) -> HRESULT {
+          [this](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+            BOOL is_success;
+            args->get_IsSuccess(&is_success);
+            if (!is_success && on_load_error_callback_) {
+              COREWEBVIEW2_WEB_ERROR_STATUS web_error_status;
+              args->get_WebErrorStatus(&web_error_status);
+              on_load_error_callback_(web_error_status);
+            }
+
             if (loading_state_changed_callback_) {
               loading_state_changed_callback_(
                   WebviewLoadingState::NavigationCompleted);
@@ -465,6 +473,66 @@ void Webview::SetCursorPos(double x, double y) {
       virtual_keys_.state(), 0, point);
 }
 
+void Webview::SetPointerUpdate(int32_t pointer, WebviewPointerEventKind eventKind, double x, double y, double size, double pressure) {
+  if (!IsValid()) {
+    return;
+  }
+
+  COREWEBVIEW2_POINTER_EVENT_KIND event = COREWEBVIEW2_POINTER_EVENT_KIND_UPDATE;
+  UINT32 pointerFlags = POINTER_FLAG_NONE;
+  switch (eventKind) {
+    case WebviewPointerEventKind::Activate:
+      event = COREWEBVIEW2_POINTER_EVENT_KIND_ACTIVATE;
+      break;
+    case WebviewPointerEventKind::Down:
+    event = COREWEBVIEW2_POINTER_EVENT_KIND_DOWN;
+      pointerFlags = POINTER_FLAG_DOWN | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT;
+      break;
+    case WebviewPointerEventKind::Enter:
+      event = COREWEBVIEW2_POINTER_EVENT_KIND_ENTER;
+      break;
+    case WebviewPointerEventKind::Leave:
+      event = COREWEBVIEW2_POINTER_EVENT_KIND_LEAVE;
+      break;
+    case WebviewPointerEventKind::Up:
+      event = COREWEBVIEW2_POINTER_EVENT_KIND_UP;
+      pointerFlags = POINTER_FLAG_UP;
+      break;
+    case WebviewPointerEventKind::Update:
+      event = COREWEBVIEW2_POINTER_EVENT_KIND_UPDATE;
+      pointerFlags = POINTER_FLAG_UPDATE | POINTER_FLAG_INRANGE | POINTER_FLAG_INCONTACT;
+      break;
+  }
+
+  POINT point;
+  point.x = static_cast<LONG>(x);
+  point.y = static_cast<LONG>(y);
+
+  RECT rect;
+  rect.left = point.x - 2;
+  rect.right = point.x + 2;
+  rect.top = point.y - 2;
+  rect.bottom = point.y + 2;
+
+ host_->CreateWebViewPointerInfo([this, pointer, event, pointerFlags, point, rect, pressure](
+           wil::com_ptr<ICoreWebView2PointerInfo> pointerInfo,
+           std::unique_ptr<WebviewCreationError> error) {
+             if (pointerInfo) {
+               ICoreWebView2PointerInfo *pInfo = pointerInfo.get();
+               pInfo->put_PointerId(pointer);
+               pInfo->put_PointerKind(PT_TOUCH);
+               pInfo->put_PointerFlags(pointerFlags);
+               pInfo->put_TouchFlags(TOUCH_FLAG_NONE);
+               pInfo->put_TouchMask(TOUCH_MASK_CONTACTAREA | TOUCH_MASK_PRESSURE);
+               pInfo->put_TouchPressure(std::clamp((UINT32)(pressure == 0.0 ? 1024 : 1024 * pressure), (UINT32) 0, (UINT32) 1024));
+               pInfo->put_PixelLocationRaw(point);
+               pInfo->put_TouchContactRaw(rect);
+               composition_controller_->SendPointerInput(event, pInfo);
+               return;
+             }
+           });
+}
+
 void Webview::SetPointerButtonState(WebviewPointerButton button, bool is_down) {
   if (!IsValid()) {
     return;
@@ -580,6 +648,31 @@ bool Webview::GoForward() {
   return SUCCEEDED(webview_->GoForward());
 }
 
+void Webview::AddScriptToExecuteOnDocumentCreated(const std::string& script,
+                                                  AddScriptToExecuteOnDocumentCreatedCallback callback) {
+  if (!IsValid()) {
+    return;
+  }
+
+  webview_->AddScriptToExecuteOnDocumentCreated(
+          get_utf16(script, CP_UTF8).c_str(),
+          Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>(
+              [callback](HRESULT result, LPCWSTR wsid) -> HRESULT {
+                std::string sid = CW2A(wsid, CP_UTF8);
+                callback(SUCCEEDED(result), sid);
+                return S_OK;
+              })
+              .Get());
+}
+
+void Webview::RemoveScriptToExecuteOnDocumentCreated(const std::string& script_id) {
+  if (!IsValid()) {
+    return;
+  }
+
+  webview_->RemoveScriptToExecuteOnDocumentCreated(get_utf16(script_id, CP_UTF8).c_str());
+}
+
 void Webview::ExecuteScript(const std::string& script,
                             ScriptExecutedCallback callback) {
   if (!IsValid()) {
@@ -638,4 +731,48 @@ bool Webview::Resume() {
   }
   return webview->Resume() == S_OK &&
          webview_controller_->put_IsVisible(true) == S_OK;
+}
+
+bool Webview::SetVirtualHostNameMapping(
+  const std::string& hostName, const std::string& path, WebviewHostResourceAccessKind accessKind) {
+  if (!IsValid()) {
+    return false;
+  }
+
+  wil::com_ptr<ICoreWebView2_3> webview;
+  webview = webview_.query<ICoreWebView2_3>();
+  if (!webview) {
+    return false;
+  }
+
+  COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND accessKindIntValue = COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY;
+  switch (accessKind) {
+    case WebviewHostResourceAccessKind::Allow:
+      accessKindIntValue = COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW;
+      break;
+    case WebviewHostResourceAccessKind::DenyCors:
+      accessKindIntValue = COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS;
+      break;
+    case WebviewHostResourceAccessKind::Deny:
+      accessKindIntValue = COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY;
+      break;
+  }
+
+  return webview->SetVirtualHostNameToFolderMapping(towstring(hostName).c_str(),
+                                                    towstring(path).c_str(),
+                                                    accessKindIntValue);
+}
+
+bool Webview::ClearVirtualHostNameMapping(const std::string& hostName) {
+  if (!IsValid()) {
+    return false;
+  }
+
+  wil::com_ptr<ICoreWebView2_3> webview;
+  webview = webview_.query<ICoreWebView2_3>();
+  if (!webview) {
+    return false;
+  }
+
+  return webview->ClearVirtualHostNameToFolderMapping(towstring(hostName).c_str());
 }

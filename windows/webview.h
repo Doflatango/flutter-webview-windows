@@ -14,6 +14,8 @@ enum class WebviewLoadingState { None, Loading, NavigationCompleted };
 
 enum class WebviewPointerButton { None, Primary, Secondary, Tertiary };
 
+enum class WebviewPointerEventKind { Activate, Down, Enter, Leave, Up, Update };
+
 enum class WebviewPermissionKind {
   Unknown,
   Microphone,
@@ -27,6 +29,8 @@ enum class WebviewPermissionKind {
 enum class WebviewPermissionState { Default, Allow, Deny };
 
 enum class WebviewPopupWindowPolicy { Allow, Deny, ShowInSameWindow };
+
+enum class WebviewHostResourceAccessKind { Deny, Allow, DenyCors };
 
 struct WebviewHistoryChanged {
   BOOL can_go_back;
@@ -90,6 +94,7 @@ class Webview {
 
   typedef std::function<void(const std::string&)> UrlChangedCallback;
   typedef std::function<void(WebviewLoadingState)> LoadingStateChangedCallback;
+  typedef std::function<void(COREWEBVIEW2_WEB_ERROR_STATUS)> OnLoadErrorCallback;
   typedef std::function<void(WebviewHistoryChanged)> HistoryChangedCallback;
   typedef std::function<void(const std::string&)> DevtoolsProtocolEventCallback;
   typedef std::function<void(const std::string&)> DocumentTitleChangedCallback;
@@ -98,6 +103,7 @@ class Webview {
   typedef std::function<void(const HCURSOR)> CursorChangedCallback;
   typedef std::function<void(bool)> FocusChangedCallback;
   typedef std::function<void(bool, std::string&)> ScriptExecutedCallback;
+  typedef std::function<void(bool, std::string&)> AddScriptToExecuteOnDocumentCreatedCallback;
   typedef std::function<void(const std::string&)> WebMessageReceivedCallback;
   typedef std::function<void(WebviewPermissionState state)>
       WebviewPermissionRequestedCompleter;
@@ -116,6 +122,12 @@ class Webview {
 
   void SetSurfaceSize(size_t width, size_t height);
   void SetCursorPos(double x, double y);
+  void SetPointerUpdate(int32_t pointer,
+                        WebviewPointerEventKind eventKind,
+                        double x,
+                        double y,
+                        double size,
+                        double pressure);
   void SetPointerButtonState(WebviewPointerButton button, bool isDown);
   void SetScrollDelta(double delta_x, double delta_y);
   void LoadUrl(const std::string& url);
@@ -124,6 +136,9 @@ class Webview {
   bool Reload();
   bool GoBack();
   bool GoForward();
+  void AddScriptToExecuteOnDocumentCreated(const std::string& script,
+                                           AddScriptToExecuteOnDocumentCreatedCallback callback);
+  void RemoveScriptToExecuteOnDocumentCreated(const std::string& script_id);
   void ExecuteScript(const std::string& script,
                      ScriptExecutedCallback callback);
   bool PostWebMessage(const std::string& json);
@@ -137,8 +152,17 @@ class Webview {
   bool Suspend();
   bool Resume();
 
+  bool SetVirtualHostNameMapping(const std::string& hostName,
+                                 const std::string& path,
+                                 WebviewHostResourceAccessKind accessKind);
+  bool ClearVirtualHostNameMapping(const std::string& hostName);
+
   void OnUrlChanged(UrlChangedCallback callback) {
     url_changed_callback_ = std::move(callback);
+  }
+
+  void OnLoadError(OnLoadErrorCallback callback) {
+    on_load_error_callback_ = std::move(callback);
   }
 
   void OnLoadingStateChanged(LoadingStateChangedCallback callback) {
@@ -201,6 +225,7 @@ class Webview {
 
   UrlChangedCallback url_changed_callback_;
   LoadingStateChangedCallback loading_state_changed_callback_;
+  OnLoadErrorCallback on_load_error_callback_;
   HistoryChangedCallback history_changed_callback_;
   DocumentTitleChangedCallback document_title_changed_callback_;
   SurfaceSizeChangedCallback surface_size_changed_callback_;

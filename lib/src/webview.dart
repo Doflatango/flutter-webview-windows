@@ -19,6 +19,8 @@ typedef PermissionRequestedDelegate
     = FutureOr<WebviewPermissionDecision> Function(
         String url, WebviewPermissionKind permissionKind, bool isUserInitiated);
 
+typedef ScriptID = String;
+
 /// Attempts to translate a button constant such as [kPrimaryMouseButton]
 /// to a [PointerButton]
 PointerButton getButton(int value) {
@@ -101,9 +103,14 @@ class WebviewController extends ValueNotifier<WebviewValue> {
 
   final StreamController<LoadingState> _loadingStateStreamController =
       StreamController<LoadingState>();
+  final StreamController<WebErrorStatus> _onLoadErrorStreamController =
+      StreamController<WebErrorStatus>();
 
   /// A stream reflecting the current loading state.
   Stream<LoadingState> get loadingState => _loadingStateStreamController.stream;
+
+  /// A stream reflecting the navigation error when navigation completed with an error.
+  Stream<WebErrorStatus> get onLoadError => _onLoadErrorStreamController.stream;
 
   final StreamController<HistoryChanged> _historyChangedStreamController =
       StreamController<HistoryChanged>();
@@ -131,10 +138,10 @@ class WebviewController extends ValueNotifier<WebviewValue> {
   /// A stream reflecting the current cursor style.
   Stream<SystemMouseCursor> get _cursor => _cursorStreamController.stream;
 
-  final StreamController<Map<dynamic, dynamic>> _webMessageStreamController =
-      StreamController<Map<dynamic, dynamic>>();
+  final StreamController<dynamic> _webMessageStreamController =
+      StreamController<dynamic>();
 
-  Stream<Map<dynamic, dynamic>> get webMessage =>
+  Stream<dynamic> get webMessage =>
       _webMessageStreamController.stream;
 
   WebviewController() : super(WebviewValue.uninitialized());
@@ -158,6 +165,10 @@ class WebviewController extends ValueNotifier<WebviewValue> {
         switch (map['type']) {
           case 'urlChanged':
             _urlStreamController.add(map['value']);
+            break;
+          case 'onLoadError':
+            final value = WebErrorStatus.values[map['value']];
+            _onLoadErrorStreamController.add(value);
             break;
           case 'loadingStateChanged':
             final value = LoadingState.values[map['value']];
@@ -295,6 +306,33 @@ class WebviewController extends ValueNotifier<WebviewValue> {
     }
     assert(value.isInitialized);
     return _methodChannel.invokeMethod('goForward');
+  }
+
+  /// Add the provided JavaScript to a list of scripts that should be run after the global
+  /// object has been created, but before the HTML document has been parsed and before any
+  /// other script included by the HTML document is run.
+  ///
+  /// Returns a [ScriptID] when succefully which can be used for [removeScriptToExecuteOnDocumentCreated].
+  ///
+  /// see https://docs.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2?view=webview2-1.0.1264.42#addscripttoexecuteondocumentcreated
+  Future<ScriptID?> addScriptToExecuteOnDocumentCreated(String script) async {
+    if (_isDisposed) {
+      return null;
+    }
+    assert(value.isInitialized);
+    return _methodChannel.invokeMethod<String?>('addScriptToExecuteOnDocumentCreated', script);
+  }
+
+  /// Remove the corresponding JavaScript added using [addScriptToExecuteOnDocumentCreated]
+  /// with the specified script ID.
+  ///
+  /// see https://docs.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2?view=webview2-1.0.1264.42#removescripttoexecuteondocumentcreated
+  Future<void> removeScriptToExecuteOnDocumentCreated(ScriptID scriptID) async {
+    if (_isDisposed) {
+      return null;
+    }
+    assert(value.isInitialized);
+    return _methodChannel.invokeMethod('removeScriptToExecuteOnDocumentCreated', scriptID);
   }
 
   /// Run JavaScript code from the javascript parameter in the current top-level
@@ -439,6 +477,33 @@ class WebviewController extends ValueNotifier<WebviewValue> {
     return _methodChannel.invokeMethod('resume');
   }
 
+  /// Adds a Virtual Host Name Mapping.
+  ///
+  /// Please refer to
+  /// [Microsofts](https://docs.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2_3#setvirtualhostnametofoldermapping)
+  /// documentation for more details.
+  Future<void> addVirtualHostNameMapping(String hostName, String folderPath,
+      WebviewHostResourceAccessKind accessKind) async {
+    if (_isDisposed) {
+      return;
+    }
+
+    return _methodChannel.invokeMethod(
+        'setVirtualHostNameMapping', [hostName, folderPath, accessKind.index]);
+  }
+
+  /// Removes a Virtual Host Name Mapping.
+  ///
+  /// Please refer to
+  /// [Microsofts](https://docs.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2_3#clearvirtualhostnametofoldermapping)
+  /// documentation for more details.
+  Future<void> removeVirtualHostNameMapping(String hostName) async {
+    if (_isDisposed) {
+      return;
+    }
+    return _methodChannel.invokeMethod('clearVirtualHostNameMapping', hostName);
+  }
+
   /// Limits the number of frames per second to the given value.
   Future<void> setFpsLimit([int? maxFps = 0]) async {
     if (_isDisposed) {
@@ -446,6 +511,17 @@ class WebviewController extends ValueNotifier<WebviewValue> {
     }
     assert(value.isInitialized);
     return _methodChannel.invokeMethod('setFpsLimit', maxFps);
+  }
+
+  /// Sends a Pointer (Touch) update
+  Future<void> _setPointerUpdate(WebviewPointerEventKind kind, int pointer,
+      Offset position, double size, double pressure) async {
+    if (_isDisposed) {
+      return;
+    }
+    assert(value.isInitialized);
+    return _methodChannel.invokeMethod('setPointerUpdate',
+        [pointer, kind.index, position.dx, position.dy, size, pressure]);
   }
 
   /// Moves the virtual cursor to [position].
@@ -508,6 +584,8 @@ class _WebviewState extends State<Webview> {
   final GlobalKey _key = GlobalKey();
   final _downButtons = <int, PointerButton>{};
 
+  PointerDeviceKind _pointerKind = PointerDeviceKind.unknown;
+
   MouseCursor _cursor = SystemMouseCursors.basic;
 
   WebviewController get _controller => widget.controller;
@@ -553,27 +631,64 @@ class _WebviewState extends State<Webview> {
             child: _controller.value.isInitialized
                 ? Listener(
                     onPointerHover: (ev) {
+                      // ev.kind is for whatever reason not set to touch
+                      // even on touch input
+                      if (_pointerKind == PointerDeviceKind.touch) {
+                        // Ignoring hover events on touch for now
+                        return;
+                      }
                       _controller._setCursorPos(ev.localPosition);
                     },
                     onPointerDown: (ev) {
+                      _pointerKind = ev.kind;
+                      if (ev.kind == PointerDeviceKind.touch) {
+                        _controller._setPointerUpdate(
+                            WebviewPointerEventKind.down,
+                            ev.pointer,
+                            ev.localPosition,
+                            ev.size,
+                            ev.pressure);
+                        return;
+                      }
                       final button = getButton(ev.buttons);
                       _downButtons[ev.pointer] = button;
                       _controller._setPointerButtonState(button, true);
                     },
                     onPointerUp: (ev) {
+                      _pointerKind = ev.kind;
+                      if (ev.kind == PointerDeviceKind.touch) {
+                        _controller._setPointerUpdate(
+                            WebviewPointerEventKind.up,
+                            ev.pointer,
+                            ev.localPosition,
+                            ev.size,
+                            ev.pressure);
+                        return;
+                      }
                       final button = _downButtons.remove(ev.pointer);
                       if (button != null) {
                         _controller._setPointerButtonState(button, false);
                       }
                     },
                     onPointerCancel: (ev) {
+                      _pointerKind = ev.kind;
                       final button = _downButtons.remove(ev.pointer);
                       if (button != null) {
                         _controller._setPointerButtonState(button, false);
                       }
                     },
                     onPointerMove: (ev) {
-                      _controller._setCursorPos(ev.localPosition);
+                      _pointerKind = ev.kind;
+                      if (ev.kind == PointerDeviceKind.touch) {
+                        _controller._setPointerUpdate(
+                            WebviewPointerEventKind.update,
+                            ev.pointer,
+                            ev.localPosition,
+                            ev.size,
+                            ev.pressure);
+                      } else {
+                        _controller._setCursorPos(ev.localPosition);
+                      }
                     },
                     onPointerSignal: (signal) {
                       if (signal is PointerScrollEvent) {

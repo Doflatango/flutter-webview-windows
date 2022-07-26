@@ -5,6 +5,7 @@
 #include <fmt/core.h>
 #include <atlstr.h>
 
+#include <atlstr.h>
 #include <iostream>
 
 #ifdef HAVE_FLUTTER_D3D_TEXTURE
@@ -22,10 +23,13 @@ constexpr auto kMethodReload = "reload";
 constexpr auto kMethodStop = "stop";
 constexpr auto kMethodGoBack = "goBack";
 constexpr auto kMethodGoForward = "goForward";
+constexpr auto kMethodAddScriptToExecuteOnDocumentCreated = "addScriptToExecuteOnDocumentCreated";
+constexpr auto kMethodRemoveScriptToExecuteOnDocumentCreated = "removeScriptToExecuteOnDocumentCreated";
 constexpr auto kMethodExecuteScript = "executeScript";
 constexpr auto kMethodPostWebMessage = "postWebMessage";
 constexpr auto kMethodSetSize = "setSize";
 constexpr auto kMethodSetCursorPos = "setCursorPos";
+constexpr auto kMethodSetPointerUpdate = "setPointerUpdate";
 constexpr auto kMethodSetPointerButton = "setPointerButton";
 constexpr auto kMethodSetScrollDelta = "setScrollDelta";
 constexpr auto kMethodSetUserAgent = "setUserAgent";
@@ -33,11 +37,14 @@ constexpr auto kMethodSetBackgroundColor = "setBackgroundColor";
 constexpr auto kMethodOpenDevTools = "openDevTools";
 constexpr auto kMethodSuspend = "suspend";
 constexpr auto kMethodResume = "resume";
+constexpr auto kMethodSetVirtualHostNameMapping = "setVirtualHostNameMapping";
+constexpr auto kMethodClearVirtualHostNameMapping = "clearVirtualHostNameMapping";
 constexpr auto kMethodClearCookies = "clearCookies";
 constexpr auto kMethodClearCache = "clearCache";
 constexpr auto kMethodSetCacheDisabled = "setCacheDisabled";
 constexpr auto kMethodSetPopupWindowPolicy = "setPopupWindowPolicy";
 constexpr auto kMethodSetFpsLimit = "setFpsLimit";
+
 
 constexpr auto kEventType = "type";
 constexpr auto kEventValue = "value";
@@ -201,6 +208,16 @@ void WebviewBridge::RegisterEventHandlers() {
     EmitEvent(event);
   });
 
+  webview_->OnLoadError([this](COREWEBVIEW2_WEB_ERROR_STATUS web_status) {
+    const auto event = flutter::EncodableValue(flutter::EncodableMap{
+        {flutter::EncodableValue(kEventType),
+         flutter::EncodableValue("onLoadError")},
+        {flutter::EncodableValue(kEventValue),
+         flutter::EncodableValue(static_cast<int>(web_status))},
+    });
+    EmitEvent(event);
+  });
+
   webview_->OnLoadingStateChanged([this](WebviewLoadingState state) {
     const auto event = flutter::EncodableValue(flutter::EncodableMap{
         {flutter::EncodableValue(kEventType),
@@ -317,6 +334,29 @@ void WebviewBridge::HandleMethodCall(
     return result->Error(kErrorInvalidArgs);
   }
 
+  // setPointerUpdate: 
+  // [int pointer, int event, double x, double y, double size, double pressure]
+  if (method_name.compare(kMethodSetPointerUpdate) == 0) {
+      const flutter::EncodableList* list =
+      std::get_if<flutter::EncodableList>(method_call.arguments());
+    if (!list || list->size() != 6) {
+      return result->Error(kErrorInvalidArgs);
+    }
+
+    const auto pointer = std::get_if<int32_t>(&(*list)[0]);
+    const auto event = std::get_if<int32_t>(&(*list)[1]);
+    const auto x = std::get_if<double>(&(*list)[2]);
+    const auto y = std::get_if<double>(&(*list)[3]);
+    const auto size = std::get_if<double>(&(*list)[4]);
+    const auto pressure = std::get_if<double>(&(*list)[5]);
+
+    if (pointer && event && x && y && size && pressure) {
+      webview_->SetPointerUpdate(*pointer, static_cast<WebviewPointerEventKind>(*event), *x, *y, *size, *pressure);
+      return result->Success();
+    }
+    return result->Error(kErrorInvalidArgs);
+  }
+
   // setScrollDelta: [double dx, double dy]
   if (method_name.compare(kMethodSetScrollDelta) == 0) {
     const auto delta = GetPointFromArgs(method_call.arguments());
@@ -421,6 +461,64 @@ void WebviewBridge::HandleMethodCall(
     webview_->Resume();
     texture_bridge_->Start();
     return result->Success();
+  }
+
+  // setVirtualHostNameMapping [string hostName, string path, int accessKind]
+  if (method_name.compare(kMethodSetVirtualHostNameMapping) == 0) {
+    const flutter::EncodableList* list =
+    std::get_if<flutter::EncodableList>(method_call.arguments());
+    if (!list || list->size() != 3) {
+      return result->Error(kErrorInvalidArgs);
+    }
+
+    const auto hostName = std::get_if<std::string>(&(*list)[0]);
+    const auto path = std::get_if<std::string>(&(*list)[1]);
+    const auto accessKind = std::get_if<int32_t>(&(*list)[2]);
+
+    if (hostName && path && accessKind) {
+      webview_->SetVirtualHostNameMapping(*hostName, *path, static_cast<WebviewHostResourceAccessKind>(*accessKind));
+      return result->Success();
+    }
+    return result->Error(kErrorInvalidArgs);
+  }
+
+  // clearVirtualHostNameMapping: string
+  if (method_name.compare(kMethodClearVirtualHostNameMapping) == 0) {
+    if (const auto hostName = std::get_if<std::string>(method_call.arguments())) {
+      if (webview_->ClearVirtualHostNameMapping(*hostName)) {
+      return result->Success();
+      }
+    }
+    return result->Error(kErrorInvalidArgs);
+  }
+
+  if (method_name.compare(kMethodAddScriptToExecuteOnDocumentCreated) == 0) {
+    if (const auto script = std::get_if<std::string>(method_call.arguments())) {
+      std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>
+          shared_result = std::move(result);
+
+      webview_->AddScriptToExecuteOnDocumentCreated(*script, [shared_result](bool success, std::string& script_id) {
+        if (success) {
+          shared_result->Success(script_id);
+        } else {
+          shared_result->Error(kScriptFailed, "Executing script failed.");
+        }
+      });
+      return;
+    }
+    return result->Error(kErrorInvalidArgs);
+  }
+
+  if (method_name.compare(kMethodRemoveScriptToExecuteOnDocumentCreated) == 0) {
+    if (const auto script_id = std::get_if<std::string>(method_call.arguments())) {
+      std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>
+          shared_result = std::move(result);
+
+      webview_->RemoveScriptToExecuteOnDocumentCreated(*script_id);
+      shared_result->Success();
+      return;
+    }
+    return result->Error(kErrorInvalidArgs);
   }
 
   // executeScript: string
