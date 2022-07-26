@@ -590,7 +590,8 @@ void Webview::ExecuteScript(const std::string& script,
           get_utf16(script, CP_UTF8).c_str(),
           Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
               [callback](HRESULT result, LPCWSTR resultObjectAsJson) {
-                callback(SUCCEEDED(result), resultObjectAsJson);
+                std::string executedResult = CW2A(resultObjectAsJson, CP_UTF8);
+                callback(SUCCEEDED(result), executedResult);
                 return S_OK;
               })
               .Get()))) {
