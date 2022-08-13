@@ -145,6 +145,7 @@ class Webview {
   bool ClearCookies();
   bool ClearCache();
   bool SetCacheDisabled(bool disabled);
+  bool SetBrowserAcceleratorKeysEnabled(bool enabled);
   void SetPopupWindowPolicy(WebviewPopupWindowPolicy policy);
   bool SetUserAgent(const std::string& user_agent);
   bool OpenDevTools();
@@ -211,6 +212,7 @@ class Webview {
   wil::com_ptr<ICoreWebView2DevToolsProtocolEventReceiver>
       devtools_protocol_event_receiver_;
   wil::com_ptr<ICoreWebView2Settings2> settings2_;
+  wil::com_ptr<ICoreWebView2Settings3> settings3_;
   POINT last_cursor_pos_ = {0, 0};
   VirtualKeyState virtual_keys_;
   WebviewPopupWindowPolicy popup_window_policy_ =

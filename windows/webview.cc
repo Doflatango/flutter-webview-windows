@@ -90,6 +90,7 @@ Webview::Webview(
   wil::com_ptr<ICoreWebView2Settings> settings;
   if (SUCCEEDED(webview_->get_Settings(settings.put()))) {
     settings2_ = settings.try_query<ICoreWebView2Settings2>();
+    settings3_ = settings.try_query<ICoreWebView2Settings3>();
 
     settings->put_IsStatusBarEnabled(FALSE);
     settings->put_AreDefaultContextMenusEnabled(FALSE);
@@ -436,6 +437,13 @@ void Webview::SetPopupWindowPolicy(WebviewPopupWindowPolicy policy) {
 bool Webview::SetUserAgent(const std::string& user_agent) {
   if (settings2_) {
     return settings2_->put_UserAgent(towstring(user_agent).c_str()) == S_OK;
+  }
+  return false;
+}
+
+bool Webview::SetBrowserAcceleratorKeysEnabled(const bool enabled) {
+  if (settings3_) {
+    return settings3_->put_AreBrowserAcceleratorKeysEnabled(enabled) == S_OK;
   }
   return false;
 }

@@ -41,6 +41,7 @@ constexpr auto kMethodClearVirtualHostNameMapping = "clearVirtualHostNameMapping
 constexpr auto kMethodClearCookies = "clearCookies";
 constexpr auto kMethodClearCache = "clearCache";
 constexpr auto kMethodSetCacheDisabled = "setCacheDisabled";
+constexpr auto kMethodSetBrowserAcceleratorKeysEnabled = "setBrowserAcceleratorKeysEnabled";
 constexpr auto kMethodSetPopupWindowPolicy = "setPopupWindowPolicy";
 constexpr auto kMethodSetFpsLimit = "setFpsLimit";
 
@@ -603,6 +604,16 @@ void WebviewBridge::HandleMethodCall(
   if (method_name.compare(kMethodSetCacheDisabled) == 0) {
     if (const auto disabled = std::get_if<bool>(method_call.arguments())) {
       if (webview_->SetCacheDisabled(*disabled)) {
+        return result->Success();
+      }
+    }
+    return result->Error(kErrorInvalidArgs);
+  }
+
+  // setBrowserAcceleratorKeysEnabled bool
+  if (method_name.compare(kMethodSetBrowserAcceleratorKeysEnabled) == 0) {
+    if (const auto enabled = std::get_if<bool>(method_call.arguments())) {
+      if (webview_->SetBrowserAcceleratorKeysEnabled(*enabled)) {
         return result->Success();
       }
     }
