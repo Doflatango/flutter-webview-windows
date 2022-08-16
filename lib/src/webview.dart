@@ -83,6 +83,13 @@ class WebviewController extends ValueNotifier<WebviewValue> {
     });
   }
 
+  /// Get the browser version info including channel name if it is not the
+  /// WebView2 Runtime.
+  /// Returns [null] if the webview2 runtime is not installed.
+  static Future<String?> getWebViewVersion() async {
+    return _pluginChannel.invokeMethod<String>('getWebViewVersion');
+  }
+
   final bool headless;
   Size? _size;
   double _scaleFactor = 1.0;
