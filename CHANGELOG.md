@@ -1,3 +1,17 @@
+## 0.2.2
+
+* Remove `libfmt` dependency in favor of C++20 `std::format`
+* Enable D3D texture bridge by default
+* Make `executeScript` return the script's result
+
+## 0.2.1
+
+* Add `WebviewController.addScriptToExecuteOnDocumentCreated` and `WebviewController.removeScriptToExecuteOnDocumentCreated`
+* Add `WebviewController.onLoadError` stream
+* Change `WebviewController.webMessage` stream type from `Map<dynamic, dynamic>` to `dynamic`
+* Add virtual hostname mapping support 
+* Add multi-touch support
+
 ## 0.2.0
 
 * Fix Flutter 3.0 null safety warning in example

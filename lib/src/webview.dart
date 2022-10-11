@@ -19,6 +19,8 @@ typedef PermissionRequestedDelegate
     = FutureOr<WebviewPermissionDecision> Function(
         String url, WebviewPermissionKind permissionKind, bool isUserInitiated);
 
+typedef ScriptID = String;
+
 /// Attempts to translate a button constant such as [kPrimaryMouseButton]
 /// to a [PointerButton]
 PointerButton getButton(int value) {
@@ -102,10 +104,15 @@ class WebviewController extends ValueNotifier<WebviewValue> {
   Stream<String> get url => _urlStreamController.stream;
 
   final StreamController<LoadingState> _loadingStateStreamController =
-      StreamController<LoadingState>();
+      StreamController<LoadingState>.broadcast();
+  final StreamController<WebErrorStatus> _onLoadErrorStreamController =
+      StreamController<WebErrorStatus>();
 
   /// A stream reflecting the current loading state.
   Stream<LoadingState> get loadingState => _loadingStateStreamController.stream;
+
+  /// A stream reflecting the navigation error when navigation completed with an error.
+  Stream<WebErrorStatus> get onLoadError => _onLoadErrorStreamController.stream;
 
   final StreamController<HistoryChanged> _historyChangedStreamController =
       StreamController<HistoryChanged>();
@@ -136,8 +143,15 @@ class WebviewController extends ValueNotifier<WebviewValue> {
   final StreamController<dynamic> _webMessageStreamController =
       StreamController<dynamic>();
 
-  Stream<dynamic> get webMessage =>
-      _webMessageStreamController.stream;
+  Stream<dynamic> get webMessage => _webMessageStreamController.stream;
+
+  final StreamController<bool>
+      _containsFullScreenElementChangedStreamController =
+      StreamController<bool>.broadcast();
+
+  /// A stream reflecting whether the document currently contains full-screen elements.
+  Stream<bool> get containsFullScreenElementChanged =>
+      _containsFullScreenElementChangedStreamController.stream;
 
   WebviewController({
     /// If [headless] is true, [WebviewController] will creates a headless webview
@@ -165,6 +179,10 @@ class WebviewController extends ValueNotifier<WebviewValue> {
           case 'urlChanged':
             _urlStreamController.add(map['value']);
             break;
+          case 'onLoadError':
+            final value = WebErrorStatus.values[map['value']];
+            _onLoadErrorStreamController.add(value);
+            break;
           case 'loadingStateChanged':
             final value = LoadingState.values[map['value']];
             _loadingStateStreamController.add(value);
@@ -190,6 +208,10 @@ class WebviewController extends ValueNotifier<WebviewValue> {
             } catch (ex) {
               _webMessageStreamController.addError(ex);
             }
+            break;
+          case 'containsFullScreenElementChanged':
+            _containsFullScreenElementChangedStreamController.add(map['value']);
+            break;
         }
       });
 
@@ -303,13 +325,47 @@ class WebviewController extends ValueNotifier<WebviewValue> {
     return _methodChannel.invokeMethod('goForward');
   }
 
-  /// Executes the given [script].
-  Future<void> executeScript(String script) async {
+  /// Adds the provided JavaScript [script] to a list of scripts that should be run after the global
+  /// object has been created, but before the HTML document has been parsed and before any
+  /// other script included by the HTML document is run.
+  ///
+  /// Returns a [ScriptID] on success which can be used for [removeScriptToExecuteOnDocumentCreated].
+  ///
+  /// see https://docs.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2?view=webview2-1.0.1264.42#addscripttoexecuteondocumentcreated
+  Future<ScriptID?> addScriptToExecuteOnDocumentCreated(String script) async {
+    if (_isDisposed) {
+      return null;
+    }
+    assert(value.isInitialized);
+    return _methodChannel.invokeMethod<String?>(
+        'addScriptToExecuteOnDocumentCreated', script);
+  }
+
+  /// Removes the script identified by [scriptId] from the list of registered scripts.
+  ///
+  /// see https://docs.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2?view=webview2-1.0.1264.42#removescripttoexecuteondocumentcreated
+  Future<void> removeScriptToExecuteOnDocumentCreated(ScriptID scriptId) async {
+    if (_isDisposed) {
+      return null;
+    }
+    assert(value.isInitialized);
+    return _methodChannel.invokeMethod(
+        'removeScriptToExecuteOnDocumentCreated', scriptId);
+  }
+
+  /// Runs the JavaScript [script] in the current top-level document rendered in
+  /// the WebView and returns its result.
+  ///
+  /// see https://docs.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2?view=webview2-1.0.1264.42#executescript
+  Future<dynamic> executeScript(String script) async {
     if (_isDisposed) {
       return;
     }
     assert(value.isInitialized);
-    return _methodChannel.invokeMethod('executeScript', script);
+
+    final data = await _methodChannel.invokeMethod('executeScript', script);
+    if (data == null) return null;
+    return jsonDecode(data as String);
   }
 
   /// Posts the given JSON-formatted message to the current document.
