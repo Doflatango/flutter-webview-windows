@@ -89,7 +89,11 @@ class WebviewController extends ValueNotifier<WebviewValue> {
   static Future<String?> getWebViewVersion() async {
     return _pluginChannel.invokeMethod<String>('getWebViewVersion');
   }
+
   final bool headless;
+  Size? _size;
+  double _scaleFactor = 1.0;
+  double get scaleFactor => headless ? 1.0 : _scaleFactor;
 
   late Completer<void> _creatingCompleter;
   int _textureId = 0;
@@ -571,11 +575,21 @@ class WebviewController extends ValueNotifier<WebviewValue> {
 
   /// Sets the surface size to the provided [size].
   Future<void> _setSize(Size size) async {
+    _size = size;
     if (_isDisposed) {
       return;
     }
     assert(value.isInitialized);
-    return _methodChannel.invokeMethod('setSize', [size.width, size.height]);
+    return _methodChannel.invokeMethod('setSize', [size.width, size.height, scaleFactor]);
+  }
+
+  Future<void> setScaleFacotr(double scaleFactor) async {
+    _scaleFactor = scaleFactor;
+    if (_isDisposed || _size == null) {
+      return;
+    }
+    assert(value.isInitialized);
+    return _methodChannel.invokeMethod('setSize', [_size!.width, _size!.height, scaleFactor]);
   }
 }
 

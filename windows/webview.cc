@@ -1,7 +1,7 @@
 #include "webview.h"
-
+#include <shellscalingapi.h>
+#pragma comment(lib,"Shcore.lib")
 #include <wrl.h>
-
 #include <format>
 #include <iostream>
 
@@ -374,21 +374,22 @@ void Webview::RegisterEventHandlers() {
       &event_registrations_.contains_fullscreen_element_changed_token_);
 }
 
-void Webview::SetSurfaceSize(size_t width, size_t height) {
+void Webview::SetSurfaceSize(size_t width, size_t height, float scale_factor) {
   if (!IsValid()) {
     return;
   }
 
   if (surface_ && width > 0 && height > 0) {
-    surface_->put_Size({(float)width, (float)height});
+    scale_factor_ = scale_factor;
+    surface_->put_Size({(float)width * scale_factor, (float)height * scale_factor});
 
     RECT bounds;
     bounds.left = 0;
     bounds.top = 0;
-    bounds.right = static_cast<LONG>(width);
-    bounds.bottom = static_cast<LONG>(height);
+    bounds.right = static_cast<LONG>(width * scale_factor);
+    bounds.bottom = static_cast<LONG>(height * scale_factor);
 
-    if (webview_controller_->put_Bounds(bounds) != S_OK) {
+    if (webview_controller_->SetBoundsAndZoomFactor(bounds, scale_factor) != S_OK) {
       std::cerr << "Setting webview bounds failed." << std::endl;
     }
 
@@ -474,8 +475,8 @@ void Webview::SetCursorPos(double x, double y) {
   }
 
   POINT point;
-  point.x = static_cast<LONG>(x);
-  point.y = static_cast<LONG>(y);
+  point.x = static_cast<LONG>(x * scale_factor_);
+  point.y = static_cast<LONG>(y * scale_factor_);
   last_cursor_pos_ = point;
 
   // https://docs.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2?view=webview2-1.0.774.44
@@ -521,8 +522,8 @@ void Webview::SetPointerUpdate(int32_t pointer,
   }
 
   POINT point;
-  point.x = static_cast<LONG>(x);
-  point.y = static_cast<LONG>(y);
+  point.x = static_cast<LONG>(x * scale_factor_);
+  point.y = static_cast<LONG>(y * scale_factor_);
 
   RECT rect;
   rect.left = point.x - 2;
