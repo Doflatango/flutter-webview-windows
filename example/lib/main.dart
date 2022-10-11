@@ -49,6 +49,7 @@ class _ExampleBrowser extends State<ExampleBrowser> {
 
     try {
       await _controller.initialize();
+      await _controller.setBrowserAcceleratorKeysEnabled(false);
       _subscriptions.add(_controller.url.listen((url) {
         _textController.text = url;
       }));

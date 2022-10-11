@@ -419,6 +419,28 @@ class WebviewController extends ValueNotifier<WebviewValue> {
     return _methodChannel.invokeMethod('setCacheDisabled', disabled);
   }
 
+  /// When this setting is set to [false], it disables all accelerator keys that
+  /// access features specific to a web browser, including but not limited to:
+  /// * Ctrl-F and F3 for Find on Page
+  /// * Ctrl-P for Print
+  /// * Ctrl-R and F5 for Reload
+  /// * Ctrl-Plus and Ctrl-Minus for zooming
+  /// * Ctrl-Shift-C and F12 for DevTools
+  /// * Special keys for browser functions, such as Back, Forward, and Search
+  ///
+  /// It does not disable accelerator keys related to movement and text editing, such as:
+  /// * Home, End, Page Up, and Page Down
+  /// * Ctrl-X, Ctrl-C, Ctrl-V
+  /// * Ctrl-A for Select All
+  /// * Ctrl-Z for Undo
+  Future<void> setBrowserAcceleratorKeysEnabled(bool enabled) async {
+    if (_isDisposed) {
+      return;
+    }
+    assert(value.isInitialized);
+    return _methodChannel.invokeMethod('setBrowserAcceleratorKeysEnabled', enabled);
+  }
+
   /// Opens the Browser DevTools in a separate window
   Future<void> openDevTools() async {
     if (_isDisposed) {
